@@ -1,36 +1,50 @@
 import os
 
-from .config import Config
+from .config import Config, Parameter
+from .validators import is_int, is_str, is_str_or_none, path_exists_or_none
 
 
-class DetectorConfig(Config):
+def is_pixel_size(key, val):
+    if isinstance(val, (str, int)):
+        val = float(val)
+    if isinstance(val, float):
+        return [val, val]
+    try:
+        if len(val) == 1:
+            val = val[0]
+            return [val, val]
+        elif len(val) == 2:
+            return val
+    except:
+        pass
+    raise RuntimeError(
+        '"%s" expects a float or list of two floats, received incompatible'
+        ' type "%s" with val "%s"' % (key, type(val), val)
+        )
 
+
+
+class Detector(Config):
+
+    parameters = Parameter('detector:parameters', is_str, is_str)
+
+    parameters_old = Parameter(
+        'detector:parameters_old',
+        path_exists_or_none,
+        is_str_or_none,
+        default=None
+        )
 
     @property
-    def columns(self):
-        return self._cfg.get('detector:pixels:columns')
+    def pixels(self):
+        return Pixels(self._cfg)
 
 
-    @property
-    def parameters_old(self):
-        return self._cfg.get(
-            'detector:parameters_old', default=None, path_exists=True
-            )
 
+class Pixels(Config):
 
-    @property
-    def parameters(self):
-        return self._cfg.get('detector:parameters', path_exists=True)
+    columns = Parameter('detector:pixels:columns', is_int, is_int)
 
+    rows = Parameter('detector:pixels:rows', is_int, is_int)
 
-    @property
-    def pixel_size(self):
-        temp = self._cfg.get('detector:pixels:size')
-        if isinstance(temp, (int, float)):
-            temp = [temp, temp]
-        return temp
-
-
-    @property
-    def rows(self):
-        return self._cfg.get('detector:pixels:rows')
+    size = Parameter('detector:pixels:size', is_pixel_size, is_pixel_size)

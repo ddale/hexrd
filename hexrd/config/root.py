@@ -1,136 +1,109 @@
-import os
 import logging
 import multiprocessing as mp
-import sys
+import os
 
-from .config import Config
-from .detector import DetectorConfig
-from .findorientations import FindOrientationsConfig
-#from .fitgrains import FitGrainsConfig
-from .imageseries import ImageSeriesConfig
-from .material import MaterialConfig
-from utils import null
+from .config import Config, Parameter
+from .detector import Detector
+#from .findorientations import FindOrientations
+#from .fitgrains import FitGrains
+#from .imageseries import ImageSeries
+#from .material import Material
+#from .utils import null
+from .validators import is_str, path_exists
 
 
 logger = logging.getLogger('hexrd.config')
 
 
-class RootConfig(Config):
+
+def set_multiproc(key, val):
+    if isinstance(val, int):
+        return val
+    if isinstance(val, str):
+        val = val.lower()
+        if val in ['all', 'half']:
+            return val
+    raise RuntimeError(
+        'invalid value specified for "%s": %s' % (key, val)
+        )
 
 
-    __config_map = {
-        'detector': DetectorConfig,
-        'find_orientations': FindOrientationsConfig,
-        #'fit_grains': FitGrainsConfig,
-        'image_series': ImageSeriesConfig,
-        'material': MaterialConfig,
-        }
 
-
-    def get(self, key, default=null, path_exists=False):
-        args = key.split(':')
-        args, item = args[:-1], args[-1]
-        temp = self._cfg
-        for arg in args:
-            temp = temp.get(arg, {})
-            # intermediate block may be None:
-            temp = {} if temp is None else temp
-        try:
-            res = temp[item]
-        except KeyError:
-            if default is not null:
-                logger.info(
-                    '%s not specified, defaulting to %s', key, default
+def get_multiproc(key, multiproc):
+    ncpus = mp.cpu_count()
+    if multiproc == 'all':
+        return ncpus
+    elif multiproc == 'half':
+        temp = ncpus / 2
+        return temp if temp else 1
+    elif isinstance(multiproc, int):
+        if multiproc >= 0:
+            if multiproc > ncpus:
+                logger.warning(
+                    'Resuested %s processes, %d available, using %d',
+                    multiproc, ncpus, ncpus
                     )
-                res = temp.get(item, default)
-            else:
-                raise RuntimeError(
-                    '%s must be specified in configuration file' % key
+                return ncpus
+            return multiproc if multiproc else 1
+        else:
+            temp = ncpus + multiproc
+            if temp < 1:
+                logger.warning(
+                    'Cannot use less than 1 process, requested %d of %d'
+                    ' available. Defaulting to 1',
+                    temp, ncpus
                     )
-        if path_exists and res and not os.path.exists(res):
-            raise IOError(
-                '%s "%s" not found' % (key, res)
-                )
-        return res
+                return 1
+            return temp
+    else:
+        temp = ncpus - 1
+        logger.warning(
+            "Invalid value %s for multiprocessing, defaulting to %d"
+            " of %d available",
+            multiproc, temp, ncpus
+            )
+        return temp
 
 
 
-    def _get_config(self, ctype):
-        temp = self._cfg.get(ctype, None)
-        temp = temp if temp is not None else {}
-        return self.__config_map[ctype](self)
+class Root(Config):
 
 
-    @property
-    def analysis_name(self):
-        return str(self.get('analysis_name', default='analysis'))
+    analysis_name = Parameter(
+        'analysis_name', is_str, is_str, default='analysis'
+        )
 
 
     @property
     def detector(self):
-        return self._get_config('detector')
+        return Detector(self)
 
 
     @property
     def find_orientations(self):
-        return self._get_config('find_orientations')
+        return FindOrientations(self)
 
 
     @property
     def fit_grains(self):
-        return self._get_config('fit_grains')
+        return FitGrains(self)
 
 
     @property
     def image_series(self):
-        return self._get_config('image_series')
+        return Imageseries(self)
 
 
     @property
     def material(self):
-        return self._get_config('material')
+        return Material(self)
 
 
-    @property
-    def multiprocessing(self):
-        # determine number of processes to run in parallel
-        multiproc = self.get('multiprocessing', default=-1)
-        ncpus = mp.cpu_count()
-        if multiproc == 'all':
-            return ncpus
-        elif multiproc == 'half':
-            temp = ncpus / 2
-            return temp if temp else 1
-        elif isinstance(multiproc, int):
-            if multiproc >= 0:
-                if multiproc > ncpus:
-                    logger.warning(
-                        'Resuested %s processes, %d available, using %d',
-                        multiproc, ncpus, ncpus
-                        )
-                    return ncpus
-                return multiproc if multiproc else 1
-            else:
-                temp = ncpus + multiproc
-                if temp < 1:
-                    logger.warning(
-                        'Cannot use less than 1 process, requested %d of %d'
-                        ' available. Defaulting to 1',
-                        temp, ncpus
-                        )
-                    return 1
-                return temp
-        else:
-            temp = ncpus - 1
-            logger.warning(
-                "Invalid value %s for multiprocessing, defaulting to %d"
-                " of %d available",
-                multiproc, temp, ncpus
-                )
-            return temp
+    multiprocessing = Parameter(
+        'multiprocessing', get_multiproc, set_multiproc, default=-1
+        )
 
 
-    @property
-    def working_dir(self):
-        return self.get(
-            'working_dir', default=os.getcwd(), path_exists=True)
+    working_dir = Parameter(
+        'working_dir', path_exists, path_exists, default=os.getcwd()
+        )
